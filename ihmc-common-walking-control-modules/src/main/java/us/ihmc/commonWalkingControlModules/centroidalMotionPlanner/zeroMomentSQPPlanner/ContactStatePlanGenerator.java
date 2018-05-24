@@ -1,11 +1,12 @@
 package us.ihmc.commonWalkingControlModules.centroidalMotionPlanner.zeroMomentSQPPlanner;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import us.ihmc.commonWalkingControlModules.controlModules.flight.ContactState;
-import us.ihmc.commons.PrintTools;
 import us.ihmc.euclid.geometry.ConvexPolygon2D;
 import us.ihmc.euclid.referenceFrame.FramePoint2D;
+import us.ihmc.euclid.referenceFrame.FramePose2D;
 import us.ihmc.euclid.referenceFrame.ReferenceFrame;
 import us.ihmc.euclid.referenceFrame.interfaces.FramePose2DReadOnly;
 import us.ihmc.robotics.geometry.FrameConvexPolygon2d;
@@ -23,6 +24,7 @@ import us.ihmc.robotics.robotSide.SideDependentList;
  */
 public class ContactStatePlanGenerator
 {
+   private FramePose2D tempPose = new FramePose2D();
    private FrameConvexPolygon2d tempPolygon = new FrameConvexPolygon2d();
    private ArrayList<FramePoint2D> tempVertexList = new ArrayList<>();
 
@@ -31,44 +33,58 @@ public class ContactStatePlanGenerator
       for (int i = 0; i < maxNumberOfSupportPolygonVertices; i++)
          tempVertexList.add(new FramePoint2D());
    }
-   
-   /**
-    * Populates the contact states based on a generated footstep plan. A footstep containing {@code Double.NaN} or {@code null} is considered 
-    * as undefined and is not included in the contact state
-    * @param contactStateListToPopulate list of contact states that will be set from the footstep plan. Should be populated with elements
-    * @param footstepLocations list of footsteps that will make up the contact state list
-    * @param footSupportPolygonInAnkleFrame  default shape of the support polygon. Assumed to be the same for both feet
-    */
-   public void computeAndSetSupportPolygon(ContactState contactStateToPopulate, ReferenceFrame supportPolygonReferenceFrame, 
-                                        SideDependentList<? extends FramePose2DReadOnly> anklePoses,
-                                        SideDependentList<ConvexPolygon2D> footSupportPolygonInAnkleFrame)
+
+   public void computeAndSetSupportPolygon(ContactState contactStateToPopulate, ReferenceFrame supportPolygonReferenceFrame,
+                                           SideDependentList<? extends FramePose2DReadOnly> anklePoses,
+                                           SideDependentList<ConvexPolygon2D> footSupportPolygonsInAnkleFrame)
    {
       computeAndSetSupportPolygon(contactStateToPopulate, supportPolygonReferenceFrame, anklePoses.get(RobotSide.LEFT), anklePoses.get(RobotSide.RIGHT),
-                               footSupportPolygonInAnkleFrame.get(RobotSide.LEFT), footSupportPolygonInAnkleFrame.get(RobotSide.RIGHT));
+                                  footSupportPolygonsInAnkleFrame.get(RobotSide.LEFT), footSupportPolygonsInAnkleFrame.get(RobotSide.RIGHT));
    }
 
-   public void computeAndSetSupportPolygon(ContactState contactStateToPopulate, ReferenceFrame desiredSupportPolygonReferenceFrame,
-                                        FramePose2DReadOnly leftAnklePose, FramePose2DReadOnly rightAnklePose, ConvexPolygon2D leftFootSupportPolygon,
-                                        ConvexPolygon2D rightFootSupportPolygon)
+   public void computeAndSetSupportPolygon(ContactState contactStateToPopulate, FramePose2DReadOnly leftAnklePose, FramePose2DReadOnly rightAnklePose, ConvexPolygon2D leftFootSupportPolygon,
+                                           ConvexPolygon2D rightFootSupportPolygon)
    {
       boolean isLeftFootSupported = leftAnklePose != null && !leftAnklePose.containsNaN() && leftFootSupportPolygon.getNumberOfVertices() > 0;
       boolean isRightFootSupported = rightAnklePose != null && !rightAnklePose.containsNaN() && rightFootSupportPolygon.getNumberOfVertices() > 0;
       int numberOfVertices = 0;
-      if (isRightFootSupported)
+      if (isRightFootSupported && isLeftFootSupported)
       {
-         addVerticesToListFromPoseAndPolygon(desiredSupportPolygonReferenceFrame, rightAnklePose, rightFootSupportPolygon, numberOfVertices);
+         computeFusedPose(tempPose, rightAnklePose, leftAnklePose);
+         addVerticesInCentroidalPoseFrameToListFromAnklePoseAndPolygon(tempPose, rightAnklePose, rightFootSupportPolygon, numberOfVertices);
          numberOfVertices += rightFootSupportPolygon.getNumberOfVertices();
-      }
-      if (isLeftFootSupported)
-      {
-         addVerticesToListFromPoseAndPolygon(desiredSupportPolygonReferenceFrame, leftAnklePose, leftFootSupportPolygon, numberOfVertices);
+         addVerticesInCentroidalPoseFrameToListFromAnklePoseAndPolygon(tempPose, leftAnklePose, leftFootSupportPolygon, numberOfVertices);
          numberOfVertices += leftFootSupportPolygon.getNumberOfVertices();
+         generateMinimalVertexSupportPolygon(tempPolygon, tempVertexList, numberOfVertices);
+      }
+      else if (isLeftFootSupported)
+      {
+         contactStateToPopulate.set(leftAnklePose);
+         contactStateToPopulate.setSupportPolygon(leftFootSupportPolygon);
+      }
+      else if(isRightFootSupported)
+      {
+         contactStateToPopulate.setPose(rightAnklePose);
+         contactStateToPopulate.setSupportPolygon(rightFootSupportPolygon);
+      }
+      else
+      {
+         contactStateToPopulate.setPoseToZero(ReferenceFrame.getWorldFrame());
+         
       }
 
       tempPolygon.clear();
-      generateMinimalVertexSupportPolygon(tempPolygon, tempVertexList, numberOfVertices);
-      contactStateToPopulate.setPoseToZero(desiredSupportPolygonReferenceFrame);
       contactStateToPopulate.setSupportPolygon(tempPolygon.getGeometryObject());
+   }
+
+   public void computeAndSetSupportPolygons(List<ContactState> contactStateList, ReferenceFrame supportPolygonReferenceFrame,
+                                            List<SideDependentList<? extends FramePose2DReadOnly>> anklePoses,
+                                            SideDependentList<ConvexPolygon2D> footSupportPolygonsInAnkleFrame)
+   {
+      if (contactStateList.size() < anklePoses.size())
+         throw new IllegalArgumentException("Contact state list does not have enough elements to store all processed support polygons");
+      for(int i = 0; i < anklePoses.size(); i++)
+         computeAndSetSupportPolygon(contactStateList.get(i), supportPolygonReferenceFrame, anklePoses.get(i), footSupportPolygonsInAnkleFrame);
    }
 
    public void generateMinimalVertexSupportPolygon(FrameConvexPolygon2d polygonToSet, ArrayList<FramePoint2D> vertexList, int numberOfVertices)
@@ -126,7 +142,7 @@ public class ContactStatePlanGenerator
       polygonToSet.setAndUpdate(vertexList, numberOfVertices);
    }
 
-   private void addVerticesToListFromPoseAndPolygon(ReferenceFrame desiredReferenceFrame, FramePose2DReadOnly anklePose,
+   private void addVerticesInCentroidalPoseFrameToListFromAnklePoseAndPolygon(FramePose2D centroidalPose, FramePose2DReadOnly anklePose,
                                                     ConvexPolygon2D footSupportPolygonInAnkleFrame, int firstIndex)
    {
       for (int i = 0; i < footSupportPolygonInAnkleFrame.getNumberOfVertices(); i++)
@@ -134,7 +150,7 @@ public class ContactStatePlanGenerator
          FramePoint2D vertexToSet = tempVertexList.get(i + firstIndex);
          vertexToSet.setIncludingFrame(anklePose.getPosition());
          vertexToSet.add(footSupportPolygonInAnkleFrame.getVertex(i));
-         vertexToSet.changeFrameAndProjectToXYPlane(desiredReferenceFrame);
+         vertexToSet.changeFrameAndProjectToXYPlane(centroidalPose.getReferenceFrame());
       }
    }
 }

@@ -1,7 +1,5 @@
 package us.ihmc.commonWalkingControlModules.controlModules.flight;
 
-import javax.crypto.spec.PSource;
-
 import us.ihmc.euclid.geometry.ConvexPolygon2D;
 import us.ihmc.euclid.referenceFrame.FramePoint3D;
 import us.ihmc.euclid.referenceFrame.FramePose3D;
@@ -10,6 +8,7 @@ import us.ihmc.euclid.referenceFrame.ReferenceFrame;
 import us.ihmc.euclid.referenceFrame.interfaces.FramePoint3DReadOnly;
 import us.ihmc.euclid.referenceFrame.interfaces.FrameQuaternionReadOnly;
 import us.ihmc.euclid.referenceFrame.interfaces.ReferenceFrameHolder;
+import us.ihmc.robotics.geometry.FrameConvexPolygon2d;
 
 /**
  * Stores the centroidal state of a robot in 2.5D representation
@@ -18,8 +17,17 @@ import us.ihmc.euclid.referenceFrame.interfaces.ReferenceFrameHolder;
  */
 public class ContactState implements ReferenceFrameHolder
 {
+   /**
+    * The duration of this contact state
+    */
    private double duration;
+   /**
+    * The pose with respect to which the support polygon is defined
+    */
    private final FramePose3D pose;
+   /**
+    * The support polygon during the this contact state
+    */
    private final ConvexPolygon2D supportPolygon;
 
    public ContactState()
@@ -51,6 +59,11 @@ public class ContactState implements ReferenceFrameHolder
       this.duration = duration;
    }
 
+   public void getSupportPolygon(ReferenceFrame referenceFrame, FrameConvexPolygon2d supportPolygonToSet)
+   {
+      supportPolygonToSet.setIncludingFrame(pose.getReferenceFrame(), this.supportPolygon);
+   }
+
    public void getSupportPolygon(ConvexPolygon2D supportPolygonToSet)
    {
       supportPolygonToSet.set(supportPolygon);
@@ -66,7 +79,7 @@ public class ContactState implements ReferenceFrameHolder
       return duration;
    }
 
-   public void setSupportPolygonFramePose(FramePose3D poseToSet)
+   public void setCentroidalFramePose(FramePose3D poseToSet)
    {
       pose.setIncludingFrame(poseToSet);
    }
